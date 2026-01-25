@@ -1,38 +1,46 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { db } from "./db";
+import {
+  rooms,
+  messages,
+  type InsertRoom,
+  type InsertMessage,
+  type Room,
+  type Message,
+} from "@shared/schema";
+import { eq, asc } from "drizzle-orm";
+import { nanoid } from "nanoid";
 
 export interface IStorage {
-  getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  createRoom(): Promise<Room>;
+  getRoomByCode(code: string): Promise<Room | undefined>;
+  getMessages(roomId: number): Promise<Message[]>;
+  createMessage(message: InsertMessage): Promise<Message>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
+export class DatabaseStorage implements IStorage {
+  async createRoom(): Promise<Room> {
+    const code = nanoid(10); // Simple unique code
+    const [room] = await db.insert(rooms).values({ code }).returning();
+    return room;
   }
 
-  async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+  async getRoomByCode(code: string): Promise<Room | undefined> {
+    const [room] = await db.select().from(rooms).where(eq(rooms.code, code));
+    return room;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+  async getMessages(roomId: number): Promise<Message[]> {
+    return await db
+      .select()
+      .from(messages)
+      .where(eq(messages.roomId, roomId))
+      .orderBy(asc(messages.createdAt));
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
-    return user;
+  async createMessage(message: InsertMessage): Promise<Message> {
+    const [newMessage] = await db.insert(messages).values(message).returning();
+    return newMessage;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();

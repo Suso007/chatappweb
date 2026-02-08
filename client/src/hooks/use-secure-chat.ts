@@ -1,84 +1,192 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, type InsertMessage } from "@shared/routes";
-import { encryptMessage, decryptMessage } from "@/lib/crypto";
-import { useState, useEffect } from "react";
+import { api, buildUrl } from "@shared/routes";
+import {
+  importPublicKey,
+  deriveSharedKey,
+  encryptMessage,
+  decryptMessage
+} from "@/lib/crypto";
+import { useState, useEffect, useCallback } from "react";
 
-// Hook to manage chat messages with automatic decryption
-export function useMessages(roomCode: string, key: CryptoKey | null) {
-  const query = useQuery({
-    queryKey: [api.messages.list.path, roomCode],
+// Types
+interface OtherUser {
+  id: string;
+  name: string | null;
+  avatarUrl: string | null;
+  publicKey: string | null;
+}
+
+interface LastMessage {
+  id: string;
+  content: string;
+  iv: string;
+  senderId: string;
+  createdAt: string;
+}
+
+interface Conversation {
+  id: string;
+  otherUser: OtherUser;
+  lastMessage: LastMessage | null;
+  updatedAt: string;
+}
+
+interface Message {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string;
+  iv: string;
+  createdAt: string;
+}
+
+// ============================================
+// useConversations - List all conversations
+// ============================================
+export function useConversations() {
+  return useQuery({
+    queryKey: ["conversations"],
     queryFn: async () => {
-      const url = api.messages.list.path.replace(":code", roomCode);
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Failed to fetch messages");
-      return api.messages.list.responses[200].parse(await res.json());
+      const res = await fetch(api.conversations.list.path);
+      if (!res.ok) throw new Error("Failed to fetch conversations");
+      return res.json() as Promise<Conversation[]>;
     },
-    // Poll every 2 seconds for new messages
-    refetchInterval: 2000,
-    enabled: !!roomCode,
+    staleTime: 30 * 1000, // 30 seconds
+  });
+}
+
+// ============================================
+// useConversation - Get single conversation
+// ============================================
+export function useConversation(conversationId: string) {
+  return useQuery({
+    queryKey: ["conversations", conversationId],
+    queryFn: async () => {
+      const res = await fetch(buildUrl(api.conversations.get.path, { id: conversationId }));
+      if (!res.ok) throw new Error("Failed to fetch conversation");
+      return res.json();
+    },
+    enabled: !!conversationId,
+  });
+}
+
+// ============================================
+// useCreateConversation - Start chat with user
+// ============================================
+export function useCreateConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      const res = await fetch(api.conversations.create.path, {
+        method: api.conversations.create.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      if (!res.ok) throw new Error("Failed to create conversation");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    },
+  });
+}
+
+// ============================================
+// useMessages - Get messages with decryption
+// ============================================
+export function useMessages(
+  conversationId: string,
+  myPrivateKey: CryptoKey | null,
+  otherUserPublicKeyBase64: string | null
+) {
+  const query = useQuery({
+    queryKey: ["messages", conversationId],
+    queryFn: async () => {
+      const res = await fetch(buildUrl(api.messages.list.path, { id: conversationId }));
+      if (!res.ok) throw new Error("Failed to fetch messages");
+      return res.json() as Promise<Message[]>;
+    },
+    enabled: !!conversationId,
+    refetchInterval: 2000, // Poll every 2 seconds
   });
 
-  const [decryptedMessages, setDecryptedMessages] = useState<any[]>([]);
+  const [decryptedMessages, setDecryptedMessages] = useState<
+    (Message & { decryptedContent?: string; isDecrypted: boolean })[]
+  >([]);
 
   useEffect(() => {
     async function processMessages() {
-      if (!query.data || !key) return;
+      if (!query.data || !myPrivateKey || !otherUserPublicKeyBase64) {
+        setDecryptedMessages([]);
+        return;
+      }
 
-      const processed = await Promise.all(
-        query.data.map(async (msg) => {
-          try {
-            const content = await decryptMessage(msg.content, msg.iv, key);
-            return { ...msg, content, isDecrypted: true };
-          } catch (e) {
-            return { ...msg, content: "Message could not be decrypted", isDecrypted: false };
-          }
-        })
-      );
-      setDecryptedMessages(processed);
+      try {
+        const theirPublicKey = await importPublicKey(otherUserPublicKeyBase64);
+        const sharedKey = await deriveSharedKey(myPrivateKey, theirPublicKey);
+
+        const processed = await Promise.all(
+          query.data.map(async (msg) => {
+            try {
+              const decryptedContent = await decryptMessage(msg.content, msg.iv, sharedKey);
+              return { ...msg, decryptedContent, isDecrypted: true };
+            } catch (e) {
+              return { ...msg, decryptedContent: "[Decryption failed]", isDecrypted: false };
+            }
+          })
+        );
+        setDecryptedMessages(processed);
+      } catch (e) {
+        console.error("Failed to process messages:", e);
+      }
     }
-    processMessages();
-  }, [query.data, key]);
 
-  return { ...query, data: decryptedMessages };
+    processMessages();
+  }, [query.data, myPrivateKey, otherUserPublicKeyBase64]);
+
+  return {
+    ...query,
+    messages: decryptedMessages,
+  };
 }
 
-export function useCreateMessage(roomCode: string, key: CryptoKey | null, senderId: string) {
+// ============================================
+// useSendMessage - Send encrypted message
+// ============================================
+export function useSendMessage(
+  conversationId: string,
+  myPrivateKey: CryptoKey | null,
+  otherUserPublicKeyBase64: string | null
+) {
   const queryClient = useQueryClient();
+
   return useMutation({
-    mutationFn: async (content: string) => {
-      if (!key) throw new Error("No encryption key available");
+    mutationFn: async (plaintext: string) => {
+      if (!myPrivateKey || !otherUserPublicKeyBase64) {
+        throw new Error("Encryption keys not ready");
+      }
 
-      const { ciphertext, iv } = await encryptMessage(content, key);
-      const payload: InsertMessage = {
-        content: ciphertext,
-        iv,
-        senderId,
-      };
+      // Derive shared key
+      const theirPublicKey = await importPublicKey(otherUserPublicKeyBase64);
+      const sharedKey = await deriveSharedKey(myPrivateKey, theirPublicKey);
 
-      const url = api.messages.create.path.replace(":code", roomCode);
-      const res = await fetch(url, {
+      // Encrypt message
+      const { ciphertext, iv } = await encryptMessage(plaintext, sharedKey);
+
+      // Send to server
+      const res = await fetch(buildUrl(api.messages.create.path, { id: conversationId }), {
         method: api.messages.create.method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ content: ciphertext, iv }),
       });
 
       if (!res.ok) throw new Error("Failed to send message");
-      return api.messages.create.responses[201].parse(await res.json());
+      return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.messages.list.path, roomCode] });
-    },
-  });
-}
-
-export function useCreateRoom() {
-  return useMutation({
-    mutationFn: async () => {
-      const res = await fetch(api.rooms.create.path, {
-        method: api.rooms.create.method,
-      });
-      if (!res.ok) throw new Error("Failed to create room");
-      return api.rooms.create.responses[201].parse(await res.json());
+      queryClient.invalidateQueries({ queryKey: ["messages", conversationId] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
   });
 }

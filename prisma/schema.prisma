@@ -1,0 +1,89 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================
+// User Model - Authentication & Profile
+// ============================================
+model User {
+  id        String  @id @default(cuid())
+  email     String? @unique
+  phone     String? @unique
+  name      String?
+  avatarUrl String?
+  googleId  String? @unique // For Google OAuth
+  publicKey String? @db.Text // Device's public key for E2E encryption
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  conversationsAsUser1 Conversation[] @relation("User1Conversations")
+  conversationsAsUser2 Conversation[] @relation("User2Conversations")
+  sentMessages         Message[]      @relation("SentMessages")
+
+  @@map("users")
+}
+
+// ============================================
+// Conversation Model - 1:1 Chat between users
+// ============================================
+model Conversation {
+  id        String   @id @default(cuid())
+  user1Id   String
+  user2Id   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user1    User      @relation("User1Conversations", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2    User      @relation("User2Conversations", fields: [user2Id], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  // Ensure unique conversation between two users (order-independent handled at app level)
+  @@unique([user1Id, user2Id])
+  @@map("conversations")
+}
+
+// ============================================
+// Message Model - Encrypted messages
+// ============================================
+model Message {
+  id             String   @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String   @db.Text // Encrypted ciphertext (base64)
+  iv             String // Initialization vector for AES-GCM (base64)
+  createdAt      DateTime @default(now())
+
+  // Relations
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+// ============================================
+// OTP Model - Phone verification
+// ============================================
+model Otp {
+  id        String   @id @default(cuid())
+  phone     String
+  code      String
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([phone, code])
+  @@map("otps")
+}

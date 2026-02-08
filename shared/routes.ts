@@ -1,63 +1,93 @@
-import { z } from "zod";
-import { insertRoomSchema, insertMessageSchema, rooms, messages } from "./schema";
-
-export const errorSchemas = {
-  validation: z.object({
-    message: z.string(),
-    field: z.string().optional(),
-  }),
-  notFound: z.object({
-    message: z.string(),
-  }),
-};
+// API route definitions for client-side consumption
 
 export const api = {
-  rooms: {
-    create: {
-      method: "POST" as const,
-      path: "/api/rooms",
-      input: z.object({}), // No input needed, server generates code
-      responses: {
-        201: z.custom<typeof rooms.$inferSelect>(),
+  // ============================================
+  // Auth Routes
+  // ============================================
+  auth: {
+    google: {
+      method: "GET" as const,
+      path: "/api/auth/google",
+    },
+    phoneOtp: {
+      send: {
+        method: "POST" as const,
+        path: "/api/auth/phone/send-otp",
       },
+      verify: {
+        method: "POST" as const,
+        path: "/api/auth/phone/verify-otp",
+      },
+    },
+    me: {
+      get: {
+        method: "GET" as const,
+        path: "/api/auth/me",
+      },
+      update: {
+        method: "PATCH" as const,
+        path: "/api/auth/me",
+      },
+    },
+    logout: {
+      method: "POST" as const,
+      path: "/api/auth/logout",
+    },
+  },
+
+  // ============================================
+  // User Routes
+  // ============================================
+  users: {
+    search: {
+      method: "GET" as const,
+      path: "/api/users/search",
     },
     get: {
       method: "GET" as const,
-      path: "/api/rooms/:code",
-      responses: {
-        200: z.custom<typeof rooms.$inferSelect>(),
-        404: errorSchemas.notFound,
-      },
+      path: "/api/users/:id",
     },
   },
-  messages: {
+
+  // ============================================
+  // Conversation Routes
+  // ============================================
+  conversations: {
     list: {
       method: "GET" as const,
-      path: "/api/rooms/:code/messages",
-      responses: {
-        200: z.array(z.custom<typeof messages.$inferSelect>()),
-        404: errorSchemas.notFound,
-      },
+      path: "/api/conversations",
     },
     create: {
       method: "POST" as const,
-      path: "/api/rooms/:code/messages",
-      input: insertMessageSchema.omit({ roomId: true }), // roomId derived from code
-      responses: {
-        201: z.custom<typeof messages.$inferSelect>(),
-        404: errorSchemas.notFound,
-      },
+      path: "/api/conversations",
+    },
+    get: {
+      method: "GET" as const,
+      path: "/api/conversations/:id",
+    },
+  },
+
+  // ============================================
+  // Message Routes
+  // ============================================
+  messages: {
+    list: {
+      method: "GET" as const,
+      path: "/api/conversations/:id/messages",
+    },
+    create: {
+      method: "POST" as const,
+      path: "/api/conversations/:id/messages",
     },
   },
 };
 
+// Helper to build URL with path parameters
 export function buildUrl(path: string, params?: Record<string, string | number>): string {
   let url = path;
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
-      if (url.includes(`:${key}`)) {
-        url = url.replace(`:${key}`, String(value));
-      }
+      url = url.replace(`:${key}`, String(value));
     });
   }
   return url;

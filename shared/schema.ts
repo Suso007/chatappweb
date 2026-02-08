@@ -1,26 +1,87 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const rooms = pgTable("rooms", {
-  id: serial("id").primaryKey(),
-  code: text("code").notNull().unique(), // Public room identifier
-  createdAt: timestamp("created_at").defaultNow(),
+// ============================================
+// User Schemas
+// ============================================
+export const userSchema = z.object({
+  id: z.string(),
+  email: z.string().email().nullable(),
+  phone: z.string().nullable(),
+  name: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  publicKey: z.string().nullable(),
 });
 
-export const messages = pgTable("messages", {
-  id: serial("id").primaryKey(),
-  roomId: integer("room_id").notNull(),
-  content: text("content").notNull(), // This will be ENCRYPTED ciphertext
-  iv: text("iv").notNull(), // Initialization vector for encryption
-  senderId: text("sender_id").notNull(), // Ephemeral session ID of sender
-  createdAt: timestamp("created_at").defaultNow(),
+export const userSearchResultSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  avatarUrl: z.string().nullable(),
+  publicKey: z.string().nullable(),
 });
 
-export const insertRoomSchema = createInsertSchema(rooms).omit({ id: true, createdAt: true });
-export const insertMessageSchema = createInsertSchema(messages).omit({ id: true, createdAt: true });
+// ============================================
+// Conversation Schemas
+// ============================================
+export const conversationSchema = z.object({
+  id: z.string(),
+  otherUser: userSearchResultSchema,
+  lastMessage: z.object({
+    id: z.string(),
+    content: z.string(),
+    iv: z.string(),
+    senderId: z.string(),
+    createdAt: z.string().or(z.date()),
+  }).nullable(),
+  updatedAt: z.string().or(z.date()),
+});
 
-export type Room = typeof rooms.$inferSelect;
-export type Message = typeof messages.$inferSelect;
-export type InsertRoom = z.infer<typeof insertRoomSchema>;
-export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export const newConversationSchema = z.object({
+  id: z.string(),
+  otherUser: userSearchResultSchema,
+  createdAt: z.string().or(z.date()),
+});
+
+// ============================================
+// Message Schemas
+// ============================================
+export const messageSchema = z.object({
+  id: z.string(),
+  conversationId: z.string(),
+  senderId: z.string(),
+  content: z.string(), // Encrypted
+  iv: z.string(),
+  createdAt: z.string().or(z.date()),
+});
+
+export const sendMessageSchema = z.object({
+  content: z.string(), // Encrypted ciphertext
+  iv: z.string(),
+});
+
+// ============================================
+// Auth Schemas
+// ============================================
+export const phoneOtpRequestSchema = z.object({
+  phone: z.string().min(10).max(15),
+});
+
+export const phoneOtpVerifySchema = z.object({
+  phone: z.string().min(10).max(15),
+  code: z.string().length(6),
+});
+
+export const updateProfileSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  publicKey: z.string().optional(),
+});
+
+// ============================================
+// Inferred Types
+// ============================================
+export type User = z.infer<typeof userSchema>;
+export type UserSearchResult = z.infer<typeof userSearchResultSchema>;
+export type Conversation = z.infer<typeof conversationSchema>;
+export type NewConversation = z.infer<typeof newConversationSchema>;
+export type Message = z.infer<typeof messageSchema>;
+export type SendMessage = z.infer<typeof sendMessageSchema>;

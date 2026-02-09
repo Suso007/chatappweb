@@ -27,15 +27,19 @@ app.use(express.urlencoded({ extended: false }));
 
 // Session configuration
 const sessionSecret = process.env.SESSION_SECRET || "secure-chat-secret-key-change-in-production";
+// Secure cookies: true on HTTPS deployments (Vercel auto-sets), false for local HTTP testing
+const isSecureCookie = process.env.COOKIE_SECURE === "true" ||
+  (process.env.NODE_ENV === "production" && process.env.VERCEL === "1");
 app.use(
   session({
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production",
+      secure: isSecureCookie,
       httpOnly: true,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      sameSite: isSecureCookie ? "none" : "lax", // Required for cross-site cookies on HTTPS
     },
   })
 );
@@ -111,7 +115,7 @@ app.use((req, res, next) => {
 
   // Start server
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(port, "127.0.0.1", () => {
+  httpServer.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
   });
 })();

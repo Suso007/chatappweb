@@ -6,12 +6,17 @@
   "scripts": {
     "dev": "tsx --env-file=.env server/index.ts",
     "build": "tsx script/build.ts",
-    "start": "NODE_ENV=production node dist/index.cjs",
+    "vercel-build": "pnpm run build",
+    "postinstall": "prisma generate",
+    "start": "node dist/index.mjs",
     "check": "tsc",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

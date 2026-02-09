@@ -1,0 +1,25 @@
+{
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "version": 2,
+    "buildCommand": "pnpm run build",
+    "installCommand": "pnpm install",
+    "framework": null,
+    "outputDirectory": "dist",
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "/index.mjs"
+        }
+    ],
+    "headers": [
+        {
+            "source": "/assets/(.*)",
+            "headers": [
+                {
+                    "key": "Cache-Control",
+                    "value": "public, max-age=31536000, immutable"
+                }
+            ]
+        }
+    ]
+}
